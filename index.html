@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Combine Chart Data</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.4.0/Chart.min.js"></script>
+    <style>
+        form label {
+            display: block;
+            margin-top: 10px;
+        }
+        form input, form select {
+            display: block;
+            margin-bottom: 10px;
+        }
+        canvas {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Combine Chart Data for Each Month</h1>
+
+    <form id="dataForm">
+        <label for="pid">PID:</label>
+        <input type="number" id="pid" name="pid" value="15372" required>
+        <label for="yearMonth">Year-Month (e.g., 2023-03):</label>
+        <input type="month" id="yearMonth" name="yearMonth" value="2023-03" required>
+        <label for="catchmentArea">Dimension of Catchment Area (m²):</label>
+        <input type="number" id="catchmentArea" name="catchmentArea" value="200" required>
+        <label for="consumptionAmount">Consumption (m³):</label>
+        <input type="number" id="consumptionAmount" name="consumptionAmount" value="80" required>
+        <label for="consumptionPeriod">Consumption Period:</label>
+        <select id="consumptionPeriod" name="consumptionPeriod" required>
+            <option value="daily">Daily</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly" selected>Yearly</option>
+        </select>
+        <label for="holdingCapacity">Holding Capacity (m³):</label>
+        <input type="number" id="holdingCapacity" name="holdingCapacity" value="5" required>
+        <label for="noConsumption">No Consumption on Rainy Days:</label>
+        <input type="checkbox" id="noConsumption" name="noConsumption" checked>
+        <label for="initialWaterLevel">Initial Water Level (m³):</label>
+        <input type="number" id="initialWaterLevel" name="initialWaterLevel" value="5" required>
+        <label for="weekendConsumption">Main Water Consumption on Weekends:</label>
+        <input type="checkbox" id="weekendConsumption" name="weekendConsumption">
+        <button type="submit">Submit</button>
+    </form>
+
+    <div id="capacityIssues">
+        <p>Days of Overflow: <span id="overflowDays">0</span></p>
+        <p>Days of Drying Up: <span id="dryingUpDays">0</span></p>
+        <p>Max Consecutive Days of Drying Up: <span id="maxConsecutiveDryingUpDays">0</span></p>
+        <p>Water Needed to Buy (m³): <span id="waterNeededToBuy">0</span></p>
+        <p>Water Used from Rain (m³): <span id="waterUsedFromRain">0</span></p>
+        <p>Percentage of Water Saved: <span id="percentageSaved">0</span>%</p>
+    </div>
+
+    <canvas id="combinedChart" width="400" height="200"></canvas>
+    
+    <script>
+        $(document).ready(function() {
+            // Set default values and submit the form
+            $('#pid').val(15372);
+            $('#yearMonth').val('2023-03');
+            $('#catchmentArea').val(200);
+            $('#consumptionAmount').val(80);
+            $('#consumptionPeriod').val('yearly');
+            $('#holdingCapacity').val(5);
+            $('#noConsumption').prop('checked', true);
+            $('#initialWaterLevel').val(5);
+            $('#weekendConsumption').prop('checked', false);
+
+            $('#dataForm').submit(function(event) {
+                event.preventDefault();
+                const pid = $('#pid').val();
+                const yearMonth = $('#yearMonth').val();
+                const catchmentArea = parseFloat($('#catchmentArea').val());
+                const consumptionAmount = parseFloat($('#consumptionAmount').val());
+                const consumptionPeriod = $('#consumptionPeriod').val();
+                const holdingCapacity = parseFloat($('#holdingCapacity').val());
+                const noConsumption = $('#noConsumption').is(':checked');
+                const initialWaterLevel = parseFloat($('#initialWaterLevel').val());
+                const weekendConsumption = $('#weekendConsumption').is(':checked');
+                let dailyConsumption;
+
+                // Adjust daily consumption based on the selected period
+                if (consumptionPeriod === 'daily') {
+                    dailyConsumption = consumptionAmount;
+                } else if (consumptionPeriod === 'monthly') {
+                    dailyConsumption = consumptionAmount / 30;
+                } else if (consumptionPeriod === 'yearly') {
+                    dailyConsumption = consumptionAmount / 365;
+                }
+
+                fetchChartData(pid, yearMonth, catchmentArea, dailyConsumption, holdingCapacity, noConsumption, initialWaterLevel, weekendConsumption);
+            });
+
+            function fetchChartData(pid, yearMonth, catchmentArea, dailyConsumption, holdingCapacity, noConsumption, initialWaterLevel, weekendConsumption) {
+                const baseUrl = `https://www.metnet.hu/napi-adatok?sub=4&pid=${pid}&date=`;
+                let combinedChartData2 = {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: "Precipitation (mm)",
+                            data: [],
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: "Water (m³)",
+                            data: [],
+                            type: 'line',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            fill: false,
+                            yAxisID: 'y-axis-2'
+                        },
+                        {
+                            label: "Capacity Issues",
+                            data: [],
+                            backgroundColor: function(context) {
+                                var value = context.dataset.data[context.dataIndex];
+                                return value === 1 ? 'rgba(255, 206, 86, 1)' : (value === -1 ? 'rgba(255, 99, 132, 1)' : 'rgba(0,0,0,0)');
+                            },
+                            borderColor: 'rgba(0, 0, 0, 0)',
+                            borderWidth: 1
+                        }
+                    ]
+                };
+
+                let requests = [];
+                const [year, startMonth] = yearMonth.split("-");
+                for (let i = 0; i < 12; i++) {
+                    let month = parseInt(startMonth) + i;
+                    let dateYear = parseInt(year) + Math.floor((month - 1) / 12);
+                    month = ((month - 1) % 12) + 1;
+                    month = month < 10 ? '0' + month : month;
+                    const url = baseUrl + dateYear + "-" + month + "-01";
+                    requests.push($.ajax({ url: url, method: "GET" }));
+                }
+
+                $.when(...requests).done(function(...responses) {
+                    let waterLevel = initialWaterLevel; // Initial water level in m³
+                    let overflowDays = 0;
+                    let dryingUpDays = 0;
+                    let maxConsecutiveDryingUpDays = 0;
+                    let currentConsecutiveDryingUpDays = 0;
+                    let totalRainWaterUsed = 0;
+
+                    responses.forEach((response, index) => {
+                        const regex = /var chartData2 = (\{.*?\});/s;
+                        const match = response[0].match(regex);
+
+                        if (match) {
+                            let chartData2 = JSON.parse(match[1].replace(/(\w+):/g, '"$1":').replace(/'/g, '"'));
+
+                            chartData2.labels = chartData2.labels.map(label => {
+                                let month = parseInt(startMonth) + index;
+                                let dateYear = parseInt(year) + Math.floor((month - 1) / 12);
+                                month = ((month - 1) % 12) + 1;
+                                month = month < 10 ? '0' + month : month;
+                                return `${dateYear}-${month}-${label.toString().padStart(2, '0')}`;
+                            });
+
+                            combinedChartData2.labels.push(...chartData2.labels);
+
+                            chartData2.datasets[0].data.forEach((value, i) => {
+                                let capacityIssue = 0;
+                                let dayOfWeek = new Date(combinedChartData2.labels[combinedChartData2.labels.length - 1]).getDay();
+                                let consumption = dailyConsumption;
+
+                                if (weekendConsumption) {
+                                    if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
+                                        consumption = ((7 * dailyConsumption) * 0.8) / 2;
+                                    } else { // Weekdays
+                                        consumption = ((7 * dailyConsumption) * 0.2) / 5;
+                                    }
+                                }
+
+                                // Convert mm to m³ based on the catchment area
+                                waterLevel += value * catchmentArea * 1e-3;
+                                totalRainWaterUsed += value * catchmentArea * 1e-3;
+
+                                if (noConsumption && value > 1) {
+                                    // Skip consumption
+                                } else {
+                                    waterLevel -= consumption;
+                                }
+
+                                if (waterLevel > holdingCapacity) {
+                                    capacityIssue = 1;
+                                    waterLevel = holdingCapacity;
+                                    overflowDays++;
+                                } else if (waterLevel < 0) {
+                                    capacityIssue = -1;
+                                    waterLevel = 0;
+                                    dryingUpDays++;
+                                    currentConsecutiveDryingUpDays++;
+                                    if (currentConsecutiveDryingUpDays > maxConsecutiveDryingUpDays) {
+                                        maxConsecutiveDryingUpDays = currentConsecutiveDryingUpDays;
+                                    }
+                                } else {
+                                    currentConsecutiveDryingUpDays = 0;
+                                }
+
+                                combinedChartData2.datasets[0].data.push(value);
+                                combinedChartData2.datasets[1].data.push(parseFloat(waterLevel.toFixed(2)));
+                                combinedChartData2.datasets[2].data.push(capacityIssue);
+                            });
+                        }
+                    });
+
+                    $('#overflowDays').text(overflowDays);
+                    $('#dryingUpDays').text(dryingUpDays);
+                    $('#maxConsecutiveDryingUpDays').text(maxConsecutiveDryingUpDays);
+
+                    const waterNeededToBuy = (dryingUpDays * dailyConsumption) + initialWaterLevel;
+                    $('#waterNeededToBuy').text(waterNeededToBuy.toFixed(2));
+
+                    const waterUsedFromRain = totalRainWaterUsed - (dryingUpDays * dailyConsumption);
+                    $('#waterUsedFromRain').text(waterUsedFromRain.toFixed(2));
+
+                    const totalWaterNeeded = (combinedChartData2.labels.length * dailyConsumption) + initialWaterLevel;
+                    const percentageSaved = ((totalWaterNeeded - waterNeededToBuy) / totalWaterNeeded) * 100;
+                    $('#percentageSaved').text(percentageSaved.toFixed(2));
+
+                    var ctx = document.getElementById('combinedChart').getContext('2d');
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: combinedChartData2,
+                        options: {
+                            scales: {
+                                yAxes: [
+                                    {
+                                        id: 'y-axis-1',
+                                        type: 'linear',
+                                        position: 'left',
+                                        ticks: {
+                                            beginAtZero: true
+                                        },
+                                        scaleLabel: {
+                                            display: true,
+                                            labelString: 'Precipitation (mm)'
+                                        }
+                                    },
+                                    {
+                                        id: 'y-axis-2',
+                                        type: 'linear',
+                                        position: 'right',
+                                        ticks: {
+                                            beginAtZero: true
+                                        },
+                                        scaleLabel: {
+                                            display: true,
+                                            labelString: 'Water (m³)'
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    });
+                }).fail(function(err) {
+                    console.log("Error fetching data for a month", err);
+                });
+            }
+
+            // Trigger form submission with default values when document is ready
+            $('#dataForm').submit();
+        });
+    </script>
+</body>
+</html>
