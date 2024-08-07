@@ -138,7 +138,7 @@
                     let dateYear = parseInt(year) + Math.floor((month - 1) / 12);
                     month = ((month - 1) % 12) + 1;
                     month = month < 10 ? '0' + month : month;
-                    const url = baseUrl + dateYear + "_" + month + ".txt";
+                    const url = baseUrl + dateYear + "_" + month + ".json";
                     requests.push($.ajax({ url: url, method: "GET" }));
                 }
 
