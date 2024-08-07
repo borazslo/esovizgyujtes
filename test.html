@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PID Data Viewer</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #response {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>PID Data Viewer</h1>
+    <label for="pidInput">Enter PID:</label>
+    <input type="number" id="pidInput" placeholder="e.g. 1023">
+    <button id="fetchDataButton">Fetch Data</button>
+
+    <div id="response"></div>
+
+    <script>
+        $(document).ready(function() {
+            $('#fetchDataButton').click(function() {
+                var pid = $('#pidInput').val();
+                if (!pid) {
+                    $('#response').html('<p style="color: red;">Please enter a PID.</p>');
+                    return;
+                }
+
+                var url = 'data/pid' + pid + '.json';
+
+                $.ajax({
+                    url: url,
+                    method: 'GET',
+                    dataType: 'json',
+                    success: function(data) {
+                        $('#response').html('<pre>' + JSON.stringify(data, null, 4) + '</pre>');
+                    },
+                    error: function(jqXHR, textStatus, errorThrown) {
+                        $('#response').html('<p style="color: red;">Error fetching data: ' + textStatus + '</p>');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
