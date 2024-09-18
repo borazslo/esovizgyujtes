@@ -120,7 +120,7 @@ def main(pid):
     # Fetch data for each month from May 2024 to the month before the current month
     for year in range(start_year, current_year + 1):
         for month in range(start_month if year == start_year else 1, 13):
-            if year == current_year and month >= current_month:
+            if year == current_year and month > current_month:
                 break
 
             month_str = f"{month:02d}"

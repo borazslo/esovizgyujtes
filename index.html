@@ -24,7 +24,12 @@
 
     <form id="dataForm">
         <label for="pid">PID:</label>
-        <input type="number" id="pid" name="pid" value="1023" required>
+        <select id="pid" name="pid" required></select>
+        <script>
+            $(document).ready(function() {
+            
+            });
+        </script>
         <label for="yearMonth">Year-Month (e.g., 2023-03):</label>
         <input type="month" id="yearMonth" name="yearMonth" value="2024-04" required>
         <label for="catchmentArea">Dimension of Catchment Area (m²):</label>
@@ -61,8 +66,10 @@
 
     <script>
         $(document).ready(function() {
+    
             // Set default values and submit the form
             $('#pid').val(1023);
+            $('#pid').find('option[value="1023"]').prop('selected', true);
             $('#yearMonth').val('2024-03');
             $('#catchmentArea').val(200);
             $('#consumptionAmount').val(80);
@@ -72,30 +79,59 @@
             $('#initialWaterLevel').val(5);
             $('#weekendConsumption').prop('checked', false);
 
-            $('#dataForm').submit(function(event) {
-                event.preventDefault();
-                const pid = $('#pid').val();
-                const yearMonth = $('#yearMonth').val();
-                const catchmentArea = parseFloat($('#catchmentArea').val());
-                const consumptionAmount = parseFloat($('#consumptionAmount').val());
-                const consumptionPeriod = $('#consumptionPeriod').val();
-                const holdingCapacity = parseFloat($('#holdingCapacity').val());
-                const noConsumption = $('#noConsumption').is(':checked');
-                const initialWaterLevel = parseFloat($('#initialWaterLevel').val());
-                const weekendConsumption = $('#weekendConsumption').is(':checked');
-                let dailyConsumption;
-
-                // Adjust daily consumption based on the selected period
-                if (consumptionPeriod === 'daily') {
-                    dailyConsumption = consumptionAmount;
-                } else if (consumptionPeriod === 'monthly') {
-                    dailyConsumption = consumptionAmount / 30;
-                } else if (consumptionPeriod === 'yearly') {
-                    dailyConsumption = consumptionAmount / 365;
+            let options = $.ajax({
+                url: 'pids.json',
+                method: 'GET',
+                dataType: 'json',
+                success: function(data) {
+                    console.log(data);
+                if (data && Array.isArray(data)) {                    
+                    const pidSelect = $('#pid');
+                    data.forEach(item => {
+                        console.log(item);
+                    pidSelect.append(new Option(item[1], item[0]));
+                    });
+                    // Set default value                    
+                    pidSelect.val(7382);
                 }
-
-                fetchChartData(pid, yearMonth, catchmentArea, dailyConsumption, holdingCapacity, noConsumption, initialWaterLevel, weekendConsumption);
+                },
+                error: function(err) {
+                console.error('Error fetching PIDs:', err);
+                }
             });
+
+            options.then(response => { 
+               
+
+
+            });
+
+            
+            $('#dataForm').submit(function(event) {
+                    event.preventDefault();
+                    const pid = $('#pid').val();
+                    console.log(pid);
+                    const yearMonth = $('#yearMonth').val();
+                    const catchmentArea = parseFloat($('#catchmentArea').val());
+                    const consumptionAmount = parseFloat($('#consumptionAmount').val());
+                    const consumptionPeriod = $('#consumptionPeriod').val();
+                    const holdingCapacity = parseFloat($('#holdingCapacity').val());
+                    const noConsumption = $('#noConsumption').is(':checked');
+                    const initialWaterLevel = parseFloat($('#initialWaterLevel').val());
+                    const weekendConsumption = $('#weekendConsumption').is(':checked');
+                    let dailyConsumption;
+
+                    // Adjust daily consumption based on the selected period
+                    if (consumptionPeriod === 'daily') {
+                        dailyConsumption = consumptionAmount;
+                    } else if (consumptionPeriod === 'monthly') {
+                        dailyConsumption = consumptionAmount / 30;
+                    } else if (consumptionPeriod === 'yearly') {
+                        dailyConsumption = consumptionAmount / 365;
+                    }
+
+                    fetchChartData(pid, yearMonth, catchmentArea, dailyConsumption, holdingCapacity, noConsumption, initialWaterLevel, weekendConsumption);
+                });
 
             function fetchChartData(pid, yearMonth, catchmentArea, dailyConsumption, holdingCapacity, noConsumption, initialWaterLevel, weekendConsumption) {
                 const baseUrl = `chartData2/` + pid + `_`;
