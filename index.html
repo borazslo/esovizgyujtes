@@ -62,8 +62,8 @@
     <script>
         $(document).ready(function() {
             // Set default values and submit the form
-            $('#pid').val(15372);
-            $('#yearMonth').val('2023-03');
+            $('#pid').val(1023);
+            $('#yearMonth').val('2024-03');
             $('#catchmentArea').val(200);
             $('#consumptionAmount').val(80);
             $('#consumptionPeriod').val('yearly');
@@ -131,18 +131,43 @@
                     ]
                 };
 
-                let requests = [];
-                const [year, startMonth] = yearMonth.split("-");
-                for (let i = 0; i < 12; i++) {
-                    let month = parseInt(startMonth) + i;
-                    let dateYear = parseInt(year) + Math.floor((month - 1) / 12);
-                    month = ((month - 1) % 12) + 1;
-                    month = month < 10 ? '0' + month : month;
-                    const url = baseUrl + dateYear + "_" + month + ".json";
-                    requests.push($.ajax({ url: url, method: "GET" }));
-                }
+                let requests = $.ajax({
+                    url: `data/pid` + pid + `.json`,
+                    method: "GET",
+                    dataType: "json"
+                }).then(response => {
+                    if (response.data) {
+                        return response;
+                    } else {
+                        return $.Deferred().reject("No data key in response");
+                    }
+                }).fail(err => {
+                    console.error("Error fetching data:", err);
+                    return $.Deferred().reject(err);
+                });
 
-                $.when(...requests).done(function(...responses) {
+                requests.then(response => {
+                    
+
+                    // Sort the data by year and month
+                    const sortedData = Object.keys(response.data).sort((a, b) => parseInt(a) - parseInt(b)).reduce((acc, year) => {
+                        acc[year] = Object.keys(response.data[year]).sort((a, b) => parseInt(a) - parseInt(b)).reduce((monthAcc, month) => {
+                            monthAcc[month] = response.data[year][month];
+                            return monthAcc;
+                        }, {});
+                        return acc;
+                    }, {});
+                    
+                    // Get the current date
+                    const today = new Date();
+                    const currentYear = today.getFullYear();
+                    const currentMonth = today.getMonth() + 1; // Months are zero-based
+                    const currentDay = today.getDate();
+                    // Assuming yearMonth is a parameter in fetchChartData in the format of YYYY-mm
+                    const [yearMonthYear, yearMonthMonth] = yearMonth.split("-").map(Number);
+                    
+                    
+                    // Starting values
                     let waterLevel = initialWaterLevel; // Initial water level in m³
                     let overflowDays = 0;
                     let dryingUpDays = 0;
@@ -150,69 +175,78 @@
                     let currentConsecutiveDryingUpDays = 0;
                     let totalRainWaterUsed = 0;
 
-                    responses.forEach((response, index) => {
-                        const regex = /var chartData2 = (\{.*?\});/s;
-                        const match = response[0].match(regex);
 
-                        if (match) {
-                            let chartData2 = JSON.parse(match[1].replace(/(\w+):/g, '"$1":').replace(/'/g, '"'));
+                    // Loop through the years, months, and days in sortedData
+                    for (const year in sortedData) {
+                        if (sortedData.hasOwnProperty(year) && parseInt(year) >= yearMonthYear) {
+                            for (const month in sortedData[year]) {
+                                if (sortedData[year].hasOwnProperty(month) && (parseInt(year) > yearMonthYear || (parseInt(year) === yearMonthYear && parseInt(month) >= yearMonthMonth))) {
+                                    for (const day in sortedData[year][month]) {
+                                        if (sortedData[year][month].hasOwnProperty(day)) {
+                                            const date = new Date(year, month - 1, Number(day) + 1);
+                                            if (date <= today) {
 
-                            chartData2.labels = chartData2.labels.map(label => {
-                                let month = parseInt(startMonth) + index;
-                                let dateYear = parseInt(year) + Math.floor((month - 1) / 12);
-                                month = ((month - 1) % 12) + 1;
-                                month = month < 10 ? '0' + month : month;
-                                return `${dateYear}-${month}-${label.toString().padStart(2, '0')}`;
-                            });
+                                                // Day by day Loop 
+                                                const value = sortedData[year][month][day];
 
-                            combinedChartData2.labels.push(...chartData2.labels);
+                                                const formattedDay = date.getDate().toString().padStart(2, '0');
+                                                //console.log(`${year}-${month}-${formattedDay}`);
+                                                combinedChartData2.labels.push(`${year}-${month}-${formattedDay}`);
 
-                            chartData2.datasets[0].data.forEach((value, i) => {
-                                let capacityIssue = 0;
-                                let dayOfWeek = new Date(combinedChartData2.labels[combinedChartData2.labels.length - 1]).getDay();
-                                let consumption = dailyConsumption;
 
-                                if (weekendConsumption) {
-                                    if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
-                                        consumption = ((7 * dailyConsumption) * 0.8) / 2;
-                                    } else { // Weekdays
-                                        consumption = ((7 * dailyConsumption) * 0.2) / 5;
+                                                let capacityIssue = 0;
+                                                let dayOfWeek = date.getDay();
+                                                let consumption = dailyConsumption;
+
+                                                if (weekendConsumption) {
+                                                    if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
+                                                        consumption = ((7 * dailyConsumption) * 0.8) / 2;
+                                                    } else { // Weekdays
+                                                        consumption = ((7 * dailyConsumption) * 0.2) / 5;
+                                                    }
+                                                }
+
+                                                // Convert mm to m³ based on the catchment area
+                                                waterLevel += value * catchmentArea * 1e-3;
+                                                totalRainWaterUsed += value * catchmentArea * 1e-3;
+
+                                                if (noConsumption && value > 1) {
+                                                    // Skip consumption
+                                                } else {
+                                                    waterLevel -= consumption;
+                                                }
+
+                                                if (waterLevel > holdingCapacity) {
+                                                    capacityIssue = 1;
+                                                    waterLevel = holdingCapacity;
+                                                    overflowDays++;
+                                                } else if (waterLevel < 0) {
+                                                    capacityIssue = -1;
+                                                    waterLevel = 0;
+                                                    dryingUpDays++;
+                                                    currentConsecutiveDryingUpDays++;
+                                                    if (currentConsecutiveDryingUpDays > maxConsecutiveDryingUpDays) {
+                                                        maxConsecutiveDryingUpDays = currentConsecutiveDryingUpDays;
+                                                    }
+                                                } else {
+                                                    currentConsecutiveDryingUpDays = 0;
+                                                }
+
+                                                combinedChartData2.datasets[0].data.push(value);
+                                                combinedChartData2.datasets[1].data.push(parseFloat(waterLevel.toFixed(2)));
+                                                combinedChartData2.datasets[2].data.push(capacityIssue);
+                                                // End of it
+
+                                            }
+                                        }
                                     }
                                 }
-
-                                // Convert mm to m³ based on the catchment area
-                                waterLevel += value * catchmentArea * 1e-3;
-                                totalRainWaterUsed += value * catchmentArea * 1e-3;
-
-                                if (noConsumption && value > 1) {
-                                    // Skip consumption
-                                } else {
-                                    waterLevel -= consumption;
-                                }
-
-                                if (waterLevel > holdingCapacity) {
-                                    capacityIssue = 1;
-                                    waterLevel = holdingCapacity;
-                                    overflowDays++;
-                                } else if (waterLevel < 0) {
-                                    capacityIssue = -1;
-                                    waterLevel = 0;
-                                    dryingUpDays++;
-                                    currentConsecutiveDryingUpDays++;
-                                    if (currentConsecutiveDryingUpDays > maxConsecutiveDryingUpDays) {
-                                        maxConsecutiveDryingUpDays = currentConsecutiveDryingUpDays;
-                                    }
-                                } else {
-                                    currentConsecutiveDryingUpDays = 0;
-                                }
-
-                                combinedChartData2.datasets[0].data.push(value);
-                                combinedChartData2.datasets[1].data.push(parseFloat(waterLevel.toFixed(2)));
-                                combinedChartData2.datasets[2].data.push(capacityIssue);
-                            });
+                            }
                         }
-                    });
-
+                    }
+                
+                
+                
                     $('#overflowDays').text(overflowDays);
                     $('#dryingUpDays').text(dryingUpDays);
                     $('#maxConsecutiveDryingUpDays').text(maxConsecutiveDryingUpDays);
@@ -262,6 +296,18 @@
                             }
                         }
                     });
+
+                });                
+                
+                
+
+                $.when(...requests).done(function(...responses) {
+                
+
+              
+
+
+                   
                 }).fail(function(err) {
                     console.log("Error fetching data for a month", err);
                 });
